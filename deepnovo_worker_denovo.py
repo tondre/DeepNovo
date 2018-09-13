@@ -534,8 +534,11 @@ class WorkerDenovo(object):
                   "position_score": position_score,
                   "score": score})
 
-    # refine and select the best sequence for each spectrum
-    predicted_batch = self._select_sequence(spectrum_batch, top_candidate_batch)
+    ## refine and select the best sequence for each spectrum
+    #predicted_batch = self._select_sequence(spectrum_batch, top_candidate_batch)
+
+    # generate a list of sequence candidates for each spectrum
+    predicted_batch = self._generate_sequence_list(spectrum_batch, top_candidate_batch)
 
     return predicted_batch
 
@@ -659,7 +662,6 @@ class WorkerDenovo(object):
 
     return peak_list
 
-
   def _select_sequence(self, spectrum_batch, top_candidate_batch):
     """TODO(nh2tran): docstring.
        Inputs:
@@ -718,6 +720,65 @@ class WorkerDenovo(object):
         predicted_batch[spectrum_id]["sequence"] = [self.vocab_reverse[x]
                                                     for x in predicted["sequence"]]
 
+    return predicted_batch
+
+  def _generate_sequence_list(self, spectrum_batch, top_candidate_batch):
+    """TODO(nh2tran): docstring.
+       Inputs:
+         spectrum_batch: a list of spectrum, each is a dictionary
+           spectrum["scan"]
+           spectrum["precursor_mass"]
+           spectrum["spectrum_holder"]
+           spectrum["spectrum_original_forward"]
+           spectrum["spectrum_original_backward"]
+       Outputs:
+         predicted_batch: a list of predicted, each is a dictionary
+           predicted["scan"]
+           predicted["sequence"]
+           predicted["score"]
+           predicted["position_score"]
+    """
+
+    #~ print("".join(["="] * 80)) # section-separating line
+    #~ print("WorkerDenovo: _select_sequence()")
+
+    spectrum_batch_size = len(spectrum_batch)
+    nested_id = int(0)
+    # refine/filter predicted sequences by precursor mass,
+    #   especially for middle peak extension
+    refine_batch = [[] for x in xrange(spectrum_batch_size)]
+    for spectrum_id in xrange(spectrum_batch_size):
+      precursor_mass = spectrum_batch[spectrum_id]["precursor_mass"]
+      candidate_list = top_candidate_batch[spectrum_id]
+      for candidate in candidate_list:
+        sequence = candidate["sequence"]
+        sequence_mass = sum(self.mass_ID[x] for x in sequence)
+        sequence_mass += self.mass_ID[self.GO_ID] + self.mass_ID[self.EOS_ID]
+        if abs(sequence_mass - precursor_mass) <= self.precursor_mass_tolerance:
+          refine_batch[spectrum_id].append(candidate)
+          nested_id += 1
+
+    #create list of len-normalized scoring candidates
+    #predicted_batch = [[] for x in xrange(spectrum_batch_size)]
+    predicted_batch = [{} for x in xrange(nested_id)]
+    nested_id = int(0)
+    for spectrum_id in xrange(spectrum_batch_size):
+      candidate_list = refine_batch[spectrum_id]
+      if not candidate_list: # cannot find any peptide
+        predicted_batch[nested_id]["scan"] = spectrum_batch[spectrum_id]["scan"]
+        predicted_batch[nested_id]["sequence"] = []
+        predicted_batch[nested_id]["position_score"] = []
+        predicted_batch[nested_id]["score"] = -float("inf")
+        nested_id += 1
+      else:
+        for candidate in candidate_list:
+          predicted_batch[nested_id]["scan"] = spectrum_batch[spectrum_id]["scan"]
+          predicted_batch[nested_id]["score"] = candidate["score"]/len(candidate["sequence"])
+          predicted_batch[nested_id]["position_score"] = candidate["position_score"]
+          # NOTE that we convert AAid back to letter
+          predicted_batch[nested_id]["sequence"] = [self.vocab_reverse[x]
+                                                      for x in candidate["sequence"]]
+          nested_id += 1
     return predicted_batch
 
 
