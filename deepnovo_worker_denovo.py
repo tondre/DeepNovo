@@ -750,6 +750,8 @@ class WorkerDenovo(object):
     for spectrum_id in xrange(spectrum_batch_size):
       precursor_mass = spectrum_batch[spectrum_id]["precursor_mass"]
       candidate_list = top_candidate_batch[spectrum_id]
+      if not candidate_list: # cannot find any peptide
+        nested_id += 1
       for candidate in candidate_list:
         sequence = candidate["sequence"]
         sequence_mass = sum(self.mass_ID[x] for x in sequence)
